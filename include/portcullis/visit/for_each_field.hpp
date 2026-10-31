@@ -47,6 +47,17 @@ struct fields_of<Struct<Items...>> {
 template <class S>
 using fields_of_t = typename fields_of<S>::type;
 
+// All items of a Struct in order, Refine items included (layout needs them: a
+// refine ends the fixed prefix even though it reads no bytes).
+template <class S>
+struct items_of;
+template <class... Items>
+struct items_of<Struct<Items...>> {
+  using type = type_list<Items...>;
+};
+template <class S>
+using items_of_t = typename items_of<S>::type;
+
 // Index of the field named `name`, or std::size_t(-1) if absent.
 template <class... Fs>
 consteval std::size_t index_of(std::string_view name) {

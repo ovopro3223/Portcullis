@@ -4,6 +4,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string_view>
 #include <tuple>
@@ -19,6 +20,7 @@
 #include "portcullis/parse/path.hpp"
 #include "portcullis/parse/value_of.hpp"
 #include "portcullis/schema/combinators.hpp"
+#include "portcullis/schema/partial.hpp"
 #include "portcullis/schema/primitives.hpp"
 #include "portcullis/visit/for_each_field.hpp"
 #include "portcullis/visit/layout.hpp"
@@ -37,6 +39,33 @@ struct first_field_name<type_list<F0, Fs...>> {
 };
 template <class S>
 inline constexpr auto first_field_name_v = first_field_name<fields_of_t<S>>::value;
+
+// The I-th element of a pack (the element type itself, e.g. a Field<…>).
+template <std::size_t I, class F0, class... Fs>
+struct pack_at : pack_at<I - 1, Fs...> {};
+template <class F0, class... Fs>
+struct pack_at<0, F0, Fs...> {
+  using type = F0;
+};
+
+// Struct of the first K fields of S — the prefix a predicate at position K sees.
+template <class L, class Seq>
+struct prefix_struct_impl;
+template <class... Fs, std::size_t... Is>
+struct prefix_struct_impl<type_list<Fs...>, std::index_sequence<Is...>> {
+  using type = Struct<typename pack_at<Is, Fs...>::type...>;
+};
+template <class S, std::size_t K>
+using prefix_struct_t =
+    typename prefix_struct_impl<fields_of_t<S>, std::make_index_sequence<K>>::type;
+
+template <class R>
+struct refine_info;
+template <auto Pred, fixed_string Name>
+struct refine_info<Refine<Pred, Name>> {
+  static constexpr auto pred = Pred;
+  static constexpr auto name = Name;
+};
 
 // Resolve a Ref/Tag that names an earlier field, as an unsigned count. Both
 // halves of the reference rule (spec 5.2) are enforced here at compile time: the
@@ -111,8 +140,18 @@ struct parse_items_t<S, FieldIdx, Done, type_list<Item, Rest...>> {
       auto next = std::tuple_cat(std::move(done), std::tuple<value_of_t<FT>>(std::move(moved)));
       return parse_items_t<S, FieldIdx + 1, decltype(next), type_list<Rest...>>::run(
           cur, here, std::move(next));
-    } else {
-      static_assert(always_false<Item>, "Refine parsing is implemented in Task 1.9");
+    } else {  // is_refine_v<Item>
+      constexpr auto Pred = refine_info<Item>::pred;
+      constexpr auto Name = refine_info<Item>::name;
+      // The predicate sees only the fields parsed so far (prefix_struct_t). A
+      // reference to a not-yet-parsed field does not compile.
+      const Partial<prefix_struct_t<S, FieldIdx>> partial(done, cur.remaining());
+      if (!static_cast<bool>(Pred(partial))) {
+        const PathBuilder rnode(&here, Name.sv());
+        return Result<field_tuple_t<S>>::fail(Error{ErrorKind::RefinementFailed, rnode.str(),
+                                                    cur.offset(), 0, 0, Name.sv(), 0});
+      }
+      return parse_items_t<S, FieldIdx, Done, type_list<Rest...>>::run(cur, here, std::move(done));
     }
   }
 };
@@ -180,7 +219,16 @@ Result<value_of_t<T>> parse_value(Cursor& cur, const PathBuilder& here, const Pr
     }(static_cast<T*>(nullptr));
 
   } else if constexpr (is_optional_v<T>) {
-    static_assert(always_false<T>, "Optional is implemented in Task 1.8");
+    return [&]<class ElemT, auto Pred>(Optional<ElemT, Pred>*) -> R {
+      const Partial<prefix_struct_t<S, FieldIdx>> partial(prefix, cur.remaining());
+      if (Pred(partial)) {
+        auto rv = parse_value<S, FieldIdx, ElemT>(cur, here, prefix);
+        if (!rv) return R::fail(rv.error());
+        return R::ok(value_of_t<T>(std::move(const_cast<value_of_t<ElemT>&>(*rv))));
+      }
+      return R::ok(value_of_t<T>(std::nullopt));
+    }(static_cast<T*>(nullptr));
+
   } else {
     static_assert(always_false<T>, "parse_value: unsupported schema type");
   }

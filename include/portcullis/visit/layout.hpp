@@ -34,19 +34,31 @@ struct struct_layout<type_list<Fs...>> {
       return compute_fixed_size<typename nth<I, Fs...>::type>() + size_from<I + 1>();
     }
   }
+};
 
-  // Sum of the fixed fields up to (not including) the first variable one.
-  template <std::size_t I>
-  static consteval std::size_t prefix_from() {
-    if constexpr (I >= sizeof...(Fs)) {
+// The fixed prefix is computed over the RAW items: it is the run of leading
+// fixed fields, ending at the first variable field OR the first Refine (a
+// refine must run at its position, so bytes beyond it cannot be pre-checked).
+template <class ItemList>
+struct items_prefix;
+template <>
+struct items_prefix<type_list<>> {
+  static consteval std::size_t value() { return 0; }
+};
+template <class I0, class... Is>
+struct items_prefix<type_list<I0, Is...>> {
+  static consteval std::size_t value() {
+    if constexpr (is_refine_v<I0>) {
       return 0;
-    } else {
-      using T = typename nth<I, Fs...>::type;
+    } else if constexpr (is_field_v<I0>) {
+      using T = typename I0::type;
       if constexpr (compute_is_fixed<T>()) {
-        return compute_fixed_size<T>() + prefix_from<I + 1>();
+        return compute_fixed_size<T>() + items_prefix<type_list<Is...>>::value();
       } else {
-        return 0;  // a Ref/Array<Ref>/Choice/Optional/variable nested field ends the prefix
+        return 0;
       }
+    } else {
+      return 0;
     }
   }
 };
@@ -57,8 +69,6 @@ struct struct_layout<type_list<>> {
   static consteval bool all_fixed() { return true; }
   template <std::size_t>
   static consteval std::size_t size_from() { return 0; }
-  template <std::size_t>
-  static consteval std::size_t prefix_from() { return 0; }
 };
 
 template <class T>
@@ -106,10 +116,11 @@ consteval std::size_t compute_fixed_size() {
 template <class S>
 inline constexpr bool is_fixed_v = detail::compute_is_fixed<S>();
 
-// Bytes before the first variable-length field (the whole schema if none).
+// Bytes before the first variable-length field or Refine (the whole schema if
+// none). One bounds check covers this prefix.
 template <class S>
 inline constexpr std::size_t fixed_prefix_v =
-    detail::struct_layout<detail::fields_of_t<S>>::template prefix_from<0>();
+    detail::items_prefix<detail::items_of_t<S>>::value();
 
 // Total size; defined only when is_fixed_v<S>.
 template <class S>
