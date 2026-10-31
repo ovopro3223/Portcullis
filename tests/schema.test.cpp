@@ -2,6 +2,7 @@
 #include "third_party/doctest.h"
 
 #include <cstdint>
+#include <string>
 #include <type_traits>
 
 #include <portcullis/schema/combinators.hpp>
