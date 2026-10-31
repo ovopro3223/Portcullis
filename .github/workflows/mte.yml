@@ -1,0 +1,63 @@
+name: MTE (aarch64 / QEMU)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Experimental, time-boxed wave (spec §7, §11). The TaggedArena's MTE path is
+# the one part of the design that extends detection beyond code that goes
+# through the library; the core does not depend on it. We cross-compile the
+# arena tests for aarch64 with MTE enabled and run them under QEMU user-mode,
+# whose `-cpu max` emulates FEAT_MTE. `overflow_past_allocation_faults` must
+# trip a synchronous tag-check fault (SIGSEGV); when a runner's QEMU reports no
+# MTE it is skipped by the test itself.
+#
+# continue-on-error: this job is marked experimental. It passes reliably under
+# QEMU 10.2.1 `-cpu max` in local verification (clang and gcc cross), but the
+# reliability of MTE emulation on GitHub's hosted QEMU could not be exercised
+# from the development environment, and spec §11 explicitly allows the job to
+# stay green-optional rather than gate merges on an experimental feature. If it
+# proves solid on the hosted runner, drop this flag to make it a hard gate.
+
+jobs:
+  mte-qemu:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross toolchain + QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            qemu-user libc6-dev-arm64-cross
+          clang --version | head -1
+          qemu-aarch64 --version | head -1
+
+      - name: Cross-compile the arena tests (clang, armv8.5-a+memtag)
+        run: |
+          clang++ --target=aarch64-linux-gnu -march=armv8.5-a+memtag -std=c++20 \
+            -Wall -Wextra -Werror -Wno-error=#warnings \
+            -Iinclude -Itests \
+            tests/main.cpp tests/arena.test.cpp tests/arena_mte.test.cpp \
+            -o arena_aarch64_tests
+
+      - name: Run arena tests under qemu-aarch64 -cpu max
+        run: |
+          qemu-aarch64 -cpu max -L /usr/aarch64-linux-gnu ./arena_aarch64_tests
+
+      - name: Cross-compile and run with gcc (second toolchain)
+        run: |
+          aarch64-linux-gnu-g++ -march=armv8.5-a+memtag -std=c++20 \
+            -Wall -Wextra -Werror -Wno-error=cpp \
+            -Iinclude -Itests \
+            tests/main.cpp tests/arena.test.cpp tests/arena_mte.test.cpp \
+            -o arena_aarch64_tests_gcc
+          qemu-aarch64 -cpu max -L /usr/aarch64-linux-gnu ./arena_aarch64_tests_gcc
