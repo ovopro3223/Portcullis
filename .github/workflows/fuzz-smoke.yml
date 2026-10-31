@@ -1,0 +1,47 @@
+name: fuzz-smoke
+
+# Structure-aware fuzzing of the parser (spec 6, 8.1 layer 3). Each target runs
+# parse<S> over fuzzer-chosen bytes under ASan + UBSan, driven by the schema's
+# own custom mutator, for 60 s. The claim under test is narrow and exact: parse
+# never reads out of bounds. A crash or a sanitizer report fails the job.
+#
+# libFuzzer and the sanitizers are clang + Linux only (spec 11), so this runs on
+# Linux with clang; the Windows job in ci.yml covers unit and compile-fail tests.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [heartbeat, png_chunks, tiff_ifd]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build
+      - name: Configure (standalone fuzz project, clang)
+        run: cmake -S fuzz -B build/fuzz -G Ninja -DCMAKE_CXX_COMPILER=clang++
+      - name: Build fuzz targets
+        run: cmake --build build/fuzz -j
+      - name: Fuzz ${{ matrix.target }} for 60 s (ASan + UBSan, no crash allowed)
+        run: |
+          mkdir -p corpus/${{ matrix.target }}
+          ./build/fuzz/fuzz_${{ matrix.target }} \
+            -max_total_time=60 -print_final_stats=1 \
+            -artifact_prefix=build/fuzz/${{ matrix.target }}- \
+            corpus/${{ matrix.target }}
+      - name: Upload crash artifacts (only if the run failed)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.target }}-crash
+          path: build/fuzz/${{ matrix.target }}-*
+          if-no-files-found: ignore
