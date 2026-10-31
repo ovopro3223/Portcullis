@@ -180,7 +180,7 @@ int main(int argc, char** argv) {
 
   // ---- tls_heartbeat ------------------------------------------------------
   emit(measure(tls, "handwritten", n, [](const std::uint8_t* p, std::size_t len) {
-    handwritten::TlsHeartbeat out;
+    static handwritten::TlsHeartbeat out{};  // static: zeroed once, not per parse
     const bool ok = handwritten::parse_tls_heartbeat(p, len, out);
     escape(&out);  // the parsed fields are used: they must be computed
     return ok;
@@ -189,7 +189,7 @@ int main(int argc, char** argv) {
 
   // ---- png_chunks ---------------------------------------------------------
   emit(measure(png, "handwritten", n, [](const std::uint8_t* p, std::size_t len) {
-    handwritten::PngChunks out;
+    static handwritten::PngChunks out{};
     const bool ok = handwritten::parse_png_chunks(p, len, out);
     escape(&out);
     return ok;
@@ -198,7 +198,7 @@ int main(int argc, char** argv) {
 
   // ---- tiff_ifd -----------------------------------------------------------
   emit(measure(tiff, "handwritten", n, [](const std::uint8_t* p, std::size_t len) {
-    handwritten::TiffIfd out;
+    static handwritten::TiffIfd out{};
     const bool ok = handwritten::parse_tiff_ifd(p, len, out);
     escape(&out);
     return ok;
