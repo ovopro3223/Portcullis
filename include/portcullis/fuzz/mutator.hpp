@@ -33,7 +33,9 @@ namespace portcullis::fuzz {
 
 // The edit mutate() last performed. Not part of the frozen interface — an
 // observability hook so a test can confirm each field-level op is reachable.
-enum class MutOp { ByteFlip, LenChange, TagSwap, Truncate, DupElem };
+// GenSeed means the input did not scan and was replaced with a freshly
+// generated structure to bootstrap the fuzzer out of a shallow state.
+enum class MutOp { ByteFlip, LenChange, TagSwap, Truncate, DupElem, GenSeed };
 inline thread_local MutOp last_op = MutOp::ByteFlip;
 
 namespace detail {
@@ -327,6 +329,21 @@ std::size_t mutate(std::span<std::byte> buf, std::size_t size, std::size_t max_s
   const bool ok = sc.template scan_struct<S>();
   if (ok && (!sc.ints.empty() || !sc.elems.empty()))
     return detail::apply_field_op<S>(buf, size, max_size, rng, sc);
+
+  // The input did not scan (truncated, over-cap count, or unknown tag). Most of
+  // the time, seed a freshly generated valid or violating structure so the
+  // fuzzer escapes a shallow state instead of byte-flipping noise forever —
+  // generation and mutation are two products of one schema walk. Only when the
+  // generated instance does not fit max_size do we fall back to a byte flip.
+  if (rng.below(4) != 0) {
+    Generator<S> g(seed ^ 0x9E3779B9u);
+    std::vector<std::byte> gen = (rng.next() & 1u) ? g.valid() : g.violating();
+    if (!gen.empty() && gen.size() <= max_size) {
+      for (std::size_t i = 0; i < gen.size(); ++i) buf[i] = gen[i];
+      last_op = MutOp::GenSeed;
+      return gen.size();
+    }
+  }
   return detail::do_byte_flip(buf, size, max_size, rng);
 }
 
