@@ -2,6 +2,7 @@
 #define PORTCULLIS_SCHEMA_COMBINATORS_HPP
 
 #include <cstddef>
+#include <type_traits>
 
 #include "portcullis/core/fixed_string.hpp"
 #include "portcullis/schema/ref.hpp"
@@ -87,6 +88,42 @@ template <class T>
 inline constexpr bool is_optional_v = false;
 template <class T, auto Pred>
 inline constexpr bool is_optional_v<Optional<T, Pred>> = true;
+
+// Extractors — the structural contents of a combinator, for visit/parse/layout.
+
+// Bytes<Len>: is the length a Ref, and what is its NTTP value.
+template <class T>
+inline constexpr bool bytes_len_is_ref_v = false;
+template <auto Len>
+inline constexpr bool bytes_len_is_ref_v<Bytes<Len>> = is_ref_v<std::remove_cvref_t<decltype(Len)>>;
+
+template <class T>
+struct bytes_len;
+template <auto Len>
+struct bytes_len<Bytes<Len>> {
+  static constexpr auto value = Len;
+};
+template <class T>
+inline constexpr auto bytes_len_v = bytes_len<T>::value;
+
+// Array<E, Count, Cap>: element type, count NTTP, cap, and whether Count is a Ref.
+template <class T>
+struct array_info;
+template <class E, auto Count, std::size_t Cap>
+struct array_info<Array<E, Count, Cap>> {
+  using elem = E;
+  static constexpr auto count = Count;
+  static constexpr std::size_t cap = Cap;
+  static constexpr bool count_is_ref = is_ref_v<std::remove_cvref_t<decltype(Count)>>;
+};
+template <class T>
+using array_elem_t = typename array_info<T>::elem;
+template <class T>
+inline constexpr auto array_count_v = array_info<T>::count;
+template <class T>
+inline constexpr std::size_t array_cap_v = array_info<T>::cap;
+template <class T>
+inline constexpr bool array_count_is_ref_v = array_info<T>::count_is_ref;
 
 }  // namespace portcullis
 
