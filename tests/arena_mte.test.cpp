@@ -6,6 +6,7 @@
 // non-POSIX platforms (e.g. MinGW) the case compiles to a skip as well.
 #include "third_party/doctest.h"
 
+#include <csignal>
 #include <cstddef>
 #include <cstring>
 
@@ -14,19 +15,33 @@
 using portcullis::arena::TaggedArena;
 
 #if defined(__linux__)
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 namespace {
-// Runs `fn` in a forked child and returns the child's raw wait status.
+// Runs `fn` in a forked child and returns the child's raw wait status. The
+// child restores the default disposition for the fault signals first, so a
+// deliberate MTE fault terminates it cleanly instead of being intercepted by
+// doctest's own crash handler (which would spew a false "test CRASHED" summary
+// from inside the child). We also silence the child's stdio so it cannot echo
+// doctest's buffered parent output on its way down.
 template <class F>
 int run_in_child(F&& fn) {
   pid_t pid = ::fork();
   REQUIRE(pid >= 0);
   if (pid == 0) {
+    std::signal(SIGSEGV, SIG_DFL);
+    std::signal(SIGBUS, SIG_DFL);
+    std::signal(SIGABRT, SIG_DFL);
+    int devnull = ::open("/dev/null", O_WRONLY);
+    if (devnull >= 0) {
+      ::dup2(devnull, 1);
+      ::dup2(devnull, 2);
+    }
     fn();
     // If the child survives the overflow, exit 0 so the parent sees NO signal
-    // and the test fails loudly rather than hanging.
+    // and the test fails loudly rather than passing by accident.
     _exit(0);
   }
   int status = 0;
