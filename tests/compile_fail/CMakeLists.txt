@@ -21,3 +21,5 @@ endfunction()
 add_compile_pass_test(control)
 
 add_compile_fail_test(untrusted_no_raw_access)
+add_compile_fail_test(forward_ref)
+add_compile_fail_test(ref_to_bytes)

@@ -1,6 +1,7 @@
 #ifndef PORTCULLIS_PARSE_PARSE_HPP
 #define PORTCULLIS_PARSE_PARSE_HPP
 
+#include <concepts>
 #include <cstddef>
 #include <span>
 #include <tuple>
@@ -32,6 +33,22 @@ struct first_field_name<type_list<F0, Fs...>> {
 };
 template <class S>
 inline constexpr auto first_field_name_v = first_field_name<fields_of_t<S>>::value;
+
+// Resolve a Ref/Tag that names an earlier field, as an unsigned count. Both
+// halves of the reference rule (spec 5.2) are enforced here at compile time: the
+// target must be declared earlier, and it must be an unsigned integer primitive.
+// prefix holds the values of the FieldIdx fields parsed so far, so a resolved
+// index is always within it.
+template <class S, std::size_t FieldIdx, fixed_string RefName, class PrefixTuple>
+std::size_t resolve_count(const PrefixTuple& prefix) {
+  constexpr std::size_t ri = field_index_v<S, RefName>;
+  static_assert(ri < FieldIdx, "reference names a field that is not declared earlier");
+  using Target = field_type_t<S, RefName>;
+  static_assert(Primitive<Target>, "reference target must be an unsigned integer primitive");
+  static_assert(std::unsigned_integral<typename Target::value_type>,
+                "reference target must be an unsigned integer primitive");
+  return static_cast<std::size_t>(std::get<ri>(prefix));
+}
 
 // Mutually recursive: a field may itself be a Struct.
 template <class S>
@@ -84,16 +101,18 @@ Result<value_of_t<T>> parse_value(Cursor& cur, const PathBuilder& here, const Pr
     return R::ok(v);
 
   } else if constexpr (is_bytes_v<T>) {
+    std::size_t n;
     if constexpr (bytes_len_is_ref_v<T>) {
-      static_assert(always_false<T>, "Bytes<Ref> is implemented in Task 1.5");
+      constexpr auto ref = bytes_len_v<T>;  // the Ref value
+      n = resolve_count<S, FieldIdx, ref.name>(prefix);
     } else {
-      const std::size_t n = static_cast<std::size_t>(bytes_len_v<T>);
-      std::span<const std::byte> sp;
-      const std::size_t at = cur.offset();
-      if (!cur.take(n, sp))
-        return R::fail(Error{ErrorKind::Truncated, here.str(), at, n, cur.remaining()});
-      return R::ok(sp);
+      n = static_cast<std::size_t>(bytes_len_v<T>);
     }
+    std::span<const std::byte> sp;
+    const std::size_t at = cur.offset();
+    if (!cur.take(n, sp))
+      return R::fail(Error{ErrorKind::Truncated, here.str(), at, n, cur.remaining()});
+    return R::ok(sp);
 
   } else if constexpr (is_struct_v<T>) {
     return parse_struct<T>(cur, here);
