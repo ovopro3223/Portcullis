@@ -21,3 +21,8 @@ endfunction()
 add_compile_pass_test(control)
 
 add_compile_fail_test(untrusted_no_raw_access)
+add_compile_fail_test(forward_ref)
+add_compile_fail_test(ref_to_bytes)
+add_compile_fail_test(choice_forward_tag)
+add_compile_fail_test(refine_forward_field)
+add_compile_fail_test(parsed_is_immutable)
