@@ -1,7 +1,14 @@
 # One executable runs every *.test.cpp through doctest.
 file(GLOB PORTCULLIS_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.test.cpp")
 
-add_executable(portcullis_tests main.cpp ${PORTCULLIS_TEST_SOURCES})
+# The CVE replay suite (P7): each cve/<id>/reject.test.cpp lives beside the
+# contract it exercises. The main test glob does not reach cve/, so pull those
+# reject tests in here; they compile against the tests/ include dir (doctest)
+# like every other *.test.cpp.
+file(GLOB PORTCULLIS_CVE_TEST_SOURCES CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/../cve/*/reject.test.cpp")
+
+add_executable(portcullis_tests main.cpp ${PORTCULLIS_TEST_SOURCES} ${PORTCULLIS_CVE_TEST_SOURCES})
 target_link_libraries(portcullis_tests PRIVATE portcullis::portcullis)
 target_include_directories(portcullis_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(portcullis_tests PRIVATE -Wall -Wextra -Werror)
