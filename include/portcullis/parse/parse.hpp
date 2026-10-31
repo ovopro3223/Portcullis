@@ -142,14 +142,16 @@ struct parse_items_t<S, FieldIdx, Done, type_list<Item, Rest...>> {
           cur, here, std::move(next));
     } else {  // is_refine_v<Item>
       constexpr auto Pred = refine_info<Item>::pred;
-      constexpr auto Name = refine_info<Item>::name;
       // The predicate sees only the fields parsed so far (prefix_struct_t). A
       // reference to a not-yet-parsed field does not compile.
       const Partial<prefix_struct_t<S, FieldIdx>> partial(done, cur.remaining());
       if (!static_cast<bool>(Pred(partial))) {
-        const PathBuilder rnode(&here, Name.sv());
-        return Result<field_tuple_t<S>>::fail(Error{ErrorKind::RefinementFailed, rnode.str(),
-                                                    cur.offset(), 0, 0, Name.sv(), 0});
+        // View into the inline static member (static storage), so the name
+        // outlives this call — not a copy on the stack.
+        const std::string_view name = refine_info<Item>::name.sv();
+        const PathBuilder rnode(&here, name);
+        return Result<field_tuple_t<S>>::fail(
+            Error{ErrorKind::RefinementFailed, rnode.str(), cur.offset(), 0, 0, name, 0});
       }
       return parse_items_t<S, FieldIdx, Done, type_list<Rest...>>::run(cur, here, std::move(done));
     }
