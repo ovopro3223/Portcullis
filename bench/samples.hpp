@@ -135,4 +135,88 @@ inline Bytes png(std::size_t idat_chunks, std::size_t idat_size) {
   return b;
 }
 
+// ----------------------------------------------------------------- TIFF ----
+
+// Byte size of one value of a TIFF field type (TIFF 6.0 types 1-12); 0 for a
+// type this builder does not know.
+inline std::uint32_t tiff_type_size(std::uint16_t type) {
+  static const std::uint8_t sizes[13] = {0, 1, 1, 2, 4, 8, 1, 1, 2, 4, 8, 4, 8};
+  return type < 13 ? sizes[type] : 0u;
+}
+
+inline void put_tiff_u16(Bytes& b, bool le, std::uint16_t v) {
+  if (le) put_le16(b, v); else put_be16(b, v);
+}
+inline void put_tiff_u32(Bytes& b, bool le, std::uint32_t v) {
+  if (le) put_le32(b, v); else put_be32(b, v);
+}
+
+// 8-byte header: byte order mark, magic 42, offset of the first IFD.
+inline void put_tiff_header(Bytes& b, bool le, std::uint32_t ifd_offset) {
+  put_u8(b, le ? 'I' : 'M');
+  put_u8(b, le ? 'I' : 'M');
+  put_tiff_u16(b, le, 42);
+  put_tiff_u32(b, le, ifd_offset);
+}
+
+// One 12-byte IFD entry. `value` is written as a 32-bit word in file byte
+// order: an out-of-line offset, or the raw inline bytes (a left-justified
+// inline SHORT is `v` in little-endian files and `v << 16` in big-endian).
+inline void put_tiff_entry(Bytes& b, bool le, std::uint16_t tag, std::uint16_t type,
+                           std::uint32_t count, std::uint32_t value) {
+  put_tiff_u16(b, le, tag);
+  put_tiff_u16(b, le, type);
+  put_tiff_u32(b, le, count);
+  put_tiff_u32(b, le, value);
+}
+
+// A TIFF: header, one IFD at offset 8 with `entry_count` entries (ascending
+// tags starting at 256, next-IFD offset 0), then the out-of-line value area.
+// Entries cycle through ten shapes (inline and out-of-line, BYTE to DOUBLE).
+// The last entry is always out-of-line, so the file ends exactly where its
+// last referenced value ends: every strict prefix has an entry whose value
+// lies past the end.
+inline Bytes tiff(std::size_t entry_count, bool little_endian = true) {
+  struct Shape { std::uint16_t type; std::uint32_t count; };
+  static const Shape shapes[] = {
+      {3, 1},   // SHORT x1      inline
+      {4, 1},   // LONG x1       inline
+      {3, 3},   // SHORT x3      6 bytes out of line
+      {3, 1},   // SHORT x1      inline
+      {1, 4},   // BYTE x4       inline (exactly 4 bytes)
+      {2, 24},  // ASCII x24     out of line
+      {5, 1},   // RATIONAL x1   8 bytes out of line
+      {4, 4},   // LONG x4       16 bytes out of line
+      {3, 2},   // SHORT x2      inline (exactly 4 bytes)
+      {12, 1},  // DOUBLE x1     8 bytes out of line
+  };
+  const bool le = little_endian;
+  const std::uint32_t table_end = static_cast<std::uint32_t>(8 + 2 + 12 * entry_count + 4);
+
+  Bytes b;
+  put_tiff_header(b, le, 8);
+  put_tiff_u16(b, le, static_cast<std::uint16_t>(entry_count));
+
+  Bytes values;
+  for (std::size_t i = 0; i < entry_count; ++i) {
+    Shape s = shapes[i % (sizeof(shapes) / sizeof(shapes[0]))];
+    if (i + 1 == entry_count) s = {2, 16};  // last entry: ASCII x16, out of line
+    const std::uint32_t bytes = tiff_type_size(s.type) * s.count;
+    std::uint32_t value;
+    if (bytes > 4) {
+      if (values.size() & 1u) values.push_back(0);  // values start on even offsets
+      value = table_end + static_cast<std::uint32_t>(values.size());
+      put_filler(values, bytes, static_cast<std::uint8_t>(i));
+    } else if (s.type == 3 && s.count == 1) {
+      value = le ? 640u : (640u << 16);
+    } else {
+      value = 0x01020304u;
+    }
+    put_tiff_entry(b, le, static_cast<std::uint16_t>(256 + i), s.type, s.count, value);
+  }
+  put_tiff_u32(b, le, 0);  // next IFD: none
+  b.insert(b.end(), values.begin(), values.end());
+  return b;
+}
+
 }  // namespace samples
