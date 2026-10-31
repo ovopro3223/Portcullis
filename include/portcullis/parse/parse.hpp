@@ -6,6 +6,7 @@
 #include <span>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include "portcullis/core/cursor.hpp"
 #include "portcullis/core/error.hpp"
@@ -118,7 +119,29 @@ Result<value_of_t<T>> parse_value(Cursor& cur, const PathBuilder& here, const Pr
     return parse_struct<T>(cur, here);
 
   } else if constexpr (is_array_v<T>) {
-    static_assert(always_false<T>, "Array is implemented in Task 1.6");
+    using E = array_elem_t<T>;
+    std::size_t count;
+    if constexpr (array_count_is_ref_v<T>) {
+      constexpr auto ref = array_count_v<T>;
+      count = resolve_count<S, FieldIdx, ref.name>(prefix);
+      // A count field must not make the parser allocate unboundedly: reject
+      // before reserving or parsing a single element (D-008).
+      constexpr std::size_t cap = array_cap_v<T>;
+      if (count > cap)
+        return R::fail(Error{ErrorKind::TooManyElements, here.str(), cur.offset(), count, cap});
+    } else {
+      count = static_cast<std::size_t>(array_count_v<T>);
+    }
+    std::vector<value_of_t<E>> out;
+    out.reserve(count);
+    for (std::size_t i = 0; i < count; ++i) {
+      const PathBuilder el(&here, i);
+      auto rv = parse_value<S, FieldIdx, E>(cur, el, prefix);
+      if (!rv) return R::fail(rv.error());
+      out.push_back(std::move(const_cast<value_of_t<E>&>(*rv)));
+    }
+    return R::ok(std::move(out));
+
   } else if constexpr (is_choice_v<T>) {
     static_assert(always_false<T>, "Choice is implemented in Task 1.7");
   } else if constexpr (is_optional_v<T>) {
