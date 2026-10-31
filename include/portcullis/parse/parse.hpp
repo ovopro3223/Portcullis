@@ -3,8 +3,11 @@
 
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <span>
+#include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -54,6 +57,31 @@ std::size_t resolve_count(const PrefixTuple& prefix) {
 // Mutually recursive: a field may itself be a Struct.
 template <class S>
 Result<Parsed<S>> parse_struct(Cursor& cur, const PathBuilder& here);
+
+template <class S, std::size_t FieldIdx, class T, class PrefixTuple>
+Result<value_of_t<T>> parse_value(Cursor& cur, const PathBuilder& here, const PrefixTuple& prefix);
+
+// Tries each Case in order: the first whose value equals the tag is parsed and
+// wrapped into the variant at that case's index. No match is a BadTag.
+template <class S, std::size_t FieldIdx, std::size_t CaseIdx, class Variant, class PrefixTuple,
+          class C0, class... Cs>
+Result<Variant> choose(std::uint64_t tag, Cursor& cur, const PathBuilder& here,
+                       const PrefixTuple& prefix) {
+  using CaseT = typename case_value_type<C0>::type;
+  constexpr auto Val = case_value_type<C0>::value;
+  if (tag == static_cast<std::uint64_t>(Val)) {
+    auto rv = parse_value<S, FieldIdx, CaseT>(cur, here, prefix);
+    if (!rv) return Result<Variant>::fail(rv.error());
+    return Result<Variant>::ok(
+        Variant(std::in_place_index<CaseIdx>, std::move(const_cast<value_of_t<CaseT>&>(*rv))));
+  }
+  if constexpr (sizeof...(Cs) == 0) {
+    return Result<Variant>::fail(
+        Error{ErrorKind::BadTag, here.str(), cur.offset(), 0, 0, std::string_view{}, tag});
+  } else {
+    return choose<S, FieldIdx, CaseIdx + 1, Variant, PrefixTuple, Cs...>(tag, cur, here, prefix);
+  }
+}
 
 template <class S, std::size_t FieldIdx, class T, class PrefixTuple>
 Result<value_of_t<T>> parse_value(Cursor& cur, const PathBuilder& here, const PrefixTuple& prefix);
@@ -143,7 +171,14 @@ Result<value_of_t<T>> parse_value(Cursor& cur, const PathBuilder& here, const Pr
     return R::ok(std::move(out));
 
   } else if constexpr (is_choice_v<T>) {
-    static_assert(always_false<T>, "Choice is implemented in Task 1.7");
+    return [&]<auto TagRef, class... Cases>(Choice<TagRef, Cases...>*) -> R {
+      static_assert(is_tag_v<std::remove_cvref_t<decltype(TagRef)>>,
+                    "Choice discriminant must be Tag(\"field\")");
+      const std::uint64_t tag =
+          static_cast<std::uint64_t>(resolve_count<S, FieldIdx, TagRef.name>(prefix));
+      return choose<S, FieldIdx, 0, value_of_t<T>, PrefixTuple, Cases...>(tag, cur, here, prefix);
+    }(static_cast<T*>(nullptr));
+
   } else if constexpr (is_optional_v<T>) {
     static_assert(always_false<T>, "Optional is implemented in Task 1.8");
   } else {
