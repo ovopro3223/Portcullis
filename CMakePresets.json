@@ -1,0 +1,52 @@
+{
+  "version": 4,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "CMAKE_CXX_STANDARD": "20", "CMAKE_CXX_STANDARD_REQUIRED": "ON" }
+    },
+    {
+      "name": "clang-debug",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_CXX_COMPILER": "clang++", "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "clang-asan",
+      "inherits": "clang-debug",
+      "cacheVariables": { "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer" }
+    },
+    {
+      "name": "clang-release",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_CXX_COMPILER": "clang++", "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "gcc-release",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_CXX_COMPILER": "g++", "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "msys2-clang64",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_CXX_COMPILER": "clang++", "CMAKE_BUILD_TYPE": "Debug" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "clang-debug", "configurePreset": "clang-debug" },
+    { "name": "clang-asan", "configurePreset": "clang-asan" },
+    { "name": "clang-release", "configurePreset": "clang-release" },
+    { "name": "gcc-release", "configurePreset": "gcc-release" },
+    { "name": "msys2-clang64", "configurePreset": "msys2-clang64" }
+  ],
+  "testPresets": [
+    { "name": "clang-debug", "configurePreset": "clang-debug", "output": { "outputOnFailure": true } },
+    { "name": "clang-asan", "configurePreset": "clang-asan", "output": { "outputOnFailure": true } },
+    { "name": "clang-release", "configurePreset": "clang-release", "output": { "outputOnFailure": true } },
+    { "name": "gcc-release", "configurePreset": "gcc-release", "output": { "outputOnFailure": true } },
+    { "name": "msys2-clang64", "configurePreset": "msys2-clang64", "output": { "outputOnFailure": true } }
+  ]
+}

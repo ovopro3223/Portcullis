@@ -1,0 +1,7 @@
+build/
+cve/vendor/build/
+cve/vendor/src/
+*.o
+*.obj
+compile_commands.json
+.cache/
