@@ -41,6 +41,7 @@
 #include "handwritten/png_chunks.hpp"
 #include "handwritten/tiff_ifd.hpp"
 #include "handwritten/tls_heartbeat.hpp"
+#include "portcullis_schemas.hpp"
 #include "samples.hpp"
 
 namespace {
@@ -185,7 +186,9 @@ int main(int argc, char** argv) {
     escape(&out);  // the parsed fields are used: they must be computed
     return ok;
   }));
-  // INTEGRATOR: emit(measure(tls, "portcullis", n, <callable>));
+  emit(measure(tls, "portcullis", n, [](const std::uint8_t* p, std::size_t len) {
+    return portcullis_bench::parse_tls_heartbeat(p, len);
+  }));
 
   // ---- png_chunks ---------------------------------------------------------
   emit(measure(png, "handwritten", n, [](const std::uint8_t* p, std::size_t len) {
@@ -194,16 +197,22 @@ int main(int argc, char** argv) {
     escape(&out);
     return ok;
   }));
-  // INTEGRATOR: emit(measure(png, "portcullis", n, <callable>));
+  emit(measure(png, "portcullis", n, [](const std::uint8_t* p, std::size_t len) {
+    return portcullis_bench::parse_png_chunks(p, len);
+  }));
 
   // ---- tiff_ifd -----------------------------------------------------------
+  // The IFD-table-only variant (<false>): like for like with the Portcullis
+  // schema, which is linear and does not follow out-of-line value offsets.
   emit(measure(tiff, "handwritten", n, [](const std::uint8_t* p, std::size_t len) {
     static handwritten::TiffIfd out{};
-    const bool ok = handwritten::parse_tiff_ifd(p, len, out);
+    const bool ok = handwritten::parse_tiff_ifd<false>(p, len, out);
     escape(&out);
     return ok;
   }));
-  // INTEGRATOR: emit(measure(tiff, "portcullis", n, <callable>));
+  emit(measure(tiff, "portcullis", n, [](const std::uint8_t* p, std::size_t len) {
+    return portcullis_bench::parse_tiff_ifd(p, len);
+  }));
 
   return 0;
 }
