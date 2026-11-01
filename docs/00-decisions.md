@@ -49,3 +49,15 @@ Rules out: a Visual Studio dependency; plain `LLVM.LLVM` over the MSVC STL.
 
 Every byte read in the library goes through `Cursor::take`/`Cursor::read`, which check `remaining()` before touching a byte and leave the cursor untouched on failure. There is no other read path. The `fixed_prefix` early-out (D-005, spec §5.3) is an additional single check, not a bypass.
 Rules out: a hand-rolled read anywhere in `parse`/`fuzz`/`arena`; reading an untrusted length into a `memcpy` size.
+
+## D-011 — Agent execution model (2026-10-31/11-01)
+
+Each unit is built by a Claude agent in its own git worktree against the frozen interfaces (Appendix A), with an integrator (this session) who re-verifies every unit live before merging — not on the agent's report. Verification runs on WSL Linux under both clang and gcc; this caught cross-toolchain bugs a single Windows clang build hid (missing `<string>`, a doctest `<ciso646>`/`-Werror` interaction).
+Wave 2's units (fuzzer, CVE contracts) were run on **Opus specifically**, because the Sonnet real-time cyber safeguard flagged the (defensive) CVE-replay work as a false positive and stopped the P4 Sonnet agent; Opus with explicit defensive framing (schemas that enforce documented invariants; trigger vectors synthesized from format specs, never exploit artifacts) completed them without issue.
+Rules out: trusting an agent's "green" report without a live re-run; using Sonnet for the CVE/fuzz units.
+
+## D-012 — CVE selection may swap provisional candidates; benchmarks compare like-for-like (2026-11-01)
+
+The six CVEs are chosen so each is a bounds violation driven by a length or count field expressible as a contract. Three are locked (Heartbleed, DTLS, PNG palette); a provisional candidate that turns out not to be a clean length/count bound is swapped for one that is, in the same library, with the reason recorded in its `README.md` (so CVE-2016-9535 predictor and CVE-2017-9147 field-presence became CVE-2004-1307 strip-count and CVE-2010-4665 IFD-entry-count).
+Benchmarks compare Portcullis against a *careful* hand-written bounds-checked parser on identical bytes, validating the same structure (the honest cost, not a strawman). Where Portcullis's linear model does less than the hand-written parser — following TIFF out-of-line offsets — the comparison uses the handwritten `<false>` table-only variant and says so; the gap is a roadmap item, not hidden in the number.
+Rules out: keeping a CVE that cannot be expressed as a bounds contract; a benchmark that compares unlike work or flatters either side.
