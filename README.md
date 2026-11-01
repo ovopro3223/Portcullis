@@ -1,5 +1,8 @@
 # Portcullis
 
+[![CI](https://github.com/ovopro3223/Portcullis/actions/workflows/ci.yml/badge.svg)](https://github.com/ovopro3223/Portcullis/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Contracts for untrusted bytes, in C++.** A header-only C++20 library through which raw input can only be read by way of a declared schema — so a parser written with it cannot read or write outside the bounds the contract establishes.
 
 ```cpp
